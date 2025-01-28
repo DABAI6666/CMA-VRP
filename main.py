@@ -52,7 +52,7 @@ def prepare_data(batch, dependency_tokenizer, position_tokenizer, rel_tokenizer,
     return bert_tokens, image_feature, token_dependency_masks, token_syntactic_position, image_rel_matrix, image_rel_mask, knw_values
 
 def train():
-    # ---  Load Config ---
+
     device = torch.device(DEVICE)
     num_workers = NUM_WORKER
     batch_size = BATCH_SIZE
@@ -60,7 +60,7 @@ def train():
     l2 = L2
     num_epoch = NUM_EPOCH
 
-    # --- Load VRF Data ---
+
     knowledge = load_vrf()
 
     position_tokenizer = build_positionizer("../unified_tags_datasets/no_none_unified_tags_txt/")
@@ -68,7 +68,7 @@ def train():
     rel_tokenizer = build_image_relizer("../unified_tags_datasets/no_none_image_path/")
     pospeech_tokenizer = build_Part_of_Speechlizer("../unified_tags_datasets/no_none_unified_tags_txt/")
 
-    # --- Load Data ---
+
     dataset_dir = '../twitter/'
 
     train_set = load_data(
@@ -93,7 +93,7 @@ def train():
     train_loader = DataIterator(train_set)
     test_loader = DataIterator(test_set)
 
-    # --- Build Model & Trainer ---
+
     similarity_module = SimilarityModule()
     similarity_module.to(device)
     detection_module = DetectionModule()
@@ -106,26 +106,23 @@ def train():
     loss_func_skl = torch.nn.KLDivLoss(reduction='batchmean')
     optim_task_similarity = torch.optim.Adam(
         similarity_module.parameters(), lr=lr, weight_decay=l2
-    )  # also called task1
+    )
     optimizer_task_clip = torch.optim.AdamW(
         clip_module.parameters(), lr=0.001, weight_decay=5e-4)
     optim_task_detection = torch.optim.Adam(
         detection_module.parameters(), lr=lr, weight_decay=l2
-    )  # also called task2
+    )
 
-    # --- Initialize Contrastive Learning ---
+
     from model.Contrastive_Learning import IntraGraphContrastiveLearning, InterGraphContrastiveLearning
     inter_cl = InterGraphContrastiveLearning(tau=0.07)
     intra_cl = IntraGraphContrastiveLearning(tau=0.07)
 
-    # --- Initialize Graph Fusion ---
     aggregator = MaxAggregator()  # Using MaxAggregator for fusion, can change this to other types
     graph_fusion = GraphFusionModule(m_dim=128, aggregator=aggregator, readout_t=AttentionAggregator(hidden_size=64), readout_v=AttentionAggregator(hidden_size=64))
 
-    # --- Initialize Invariant Feature Extractor ---
     adv_module = AdversarialCycleConsistentInvariantLearning(input_dim=128, shared_dim=64)
 
-    # --- Model Training ---
     best_acc = 0
     step = 0
     for epoch in range(num_epoch):
@@ -151,7 +148,6 @@ def train():
             image_rel_matrix = image_rel_matrix.to(device)
             image_rel_mask = image_rel_mask.to(device)
 
-            # --- TASK1 Similarity ---
             text_aligned_match, image_aligned_match, pred_similarity_match = similarity_module(bert_tokens, image_feature)
             text_aligned_unmatch, image_aligned_unmatch, pred_similarity_unmatch = similarity_module(bert_tokens, image_feature.roll(shifts=3, dims=0))
 
@@ -169,29 +165,21 @@ def train():
 
             corrects_pre_similarity += similarity_pred.eq(similarity_label_0).sum().item()
 
-            # --- Inter-Graph Contrastive Loss ---
             inter_loss = inter_cl.inter_graph_contrastive_loss(text_aligned_4_task1, image_aligned_4_task1, batch_size)
 
-            # --- Intra-Graph Contrastive Loss ---
             intra_loss = intra_cl.intra_graph_contrastive_loss(image_aligned_4_task1, [text_aligned_4_task1], batch_size)
 
-            # Calculate contrastive loss
             cl_loss = inter_loss + intra_loss
 
-            # --- Graph Fusion ---
             fused_repr = graph_fusion(text_aligned_4_task1, image_aligned_4_task1, mask=torch.ones(batch_size, 128).to(device))
 
-            # --- Invariant Feature Extraction ---
             adv_loss = adv_module(text_aligned_4_task1, image_aligned_4_task1)
 
-            # Combine graph fusion and invariant features
             combined_repr = torch.cat([fused_repr, adv_loss], dim=-1)
 
-            # --- TASK2 Detection ---
             pre_detection, attention_score, skl_score = detection_module(bert_tokens, image_feature, combined_repr, combined_repr)
             loss_detection = loss_func_detection(pre_detection, torch.tensor([1])) + 0.5 * loss_func_skl(attention_score, skl_score)  # Placeholder for actual labels
 
-            # Apply final total loss
             lambda_cl = 0.5
             beta_adv = 0.2
             total_loss = loss_detection + lambda_cl * cl_loss + beta_adv * loss_detection
@@ -208,7 +196,7 @@ def train():
 
         acc_detection_train = corrects_pre_detection / detection_count
 
-        # --- Test ---
+
         acc_detection_test, loss_detection_test, cm_detection, cr_detection = test(clip_module, detection_module, test_loader)
 
         if acc_detection_test > best_acc:
@@ -251,7 +239,7 @@ def test(clip_module, detection_module, test_loader, dependency_tokenizer, posit
 
             # Forward pass through the detection module
             pre_detection, attention_score, skl_score = detection_module(bert_tokens, image_feature, text_aligned, image_aligned)
-            loss_detection = loss_func_detection(pre_detection, torch.tensor([1])) 
+            loss_detection = loss_func_detection(pre_detection, torch.tensor([1]))
             pre_label_detection = pre_detection.argmax(1)
 
             # Collect results for evaluation
