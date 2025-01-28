@@ -251,7 +251,7 @@ def test(clip_module, detection_module, test_loader, dependency_tokenizer, posit
 
             # Forward pass through the detection module
             pre_detection, attention_score, skl_score = detection_module(bert_tokens, image_feature, text_aligned, image_aligned)
-            loss_detection = loss_func_detection(pre_detection, torch.tensor([1])) + 0.2 * loss_func_skl(attention_score, skl_score)
+            loss_detection = loss_func_detection(pre_detection, torch.tensor([1])) 
             pre_label_detection = pre_detection.argmax(1)
 
             # Collect results for evaluation
